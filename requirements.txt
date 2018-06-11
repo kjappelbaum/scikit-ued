@@ -1,5 +1,5 @@
 numpy        >= 1.12
-scipy        >= 0.17
+scipy        >= 1.0.0
 scikit-image >= 0.13
 tifffile     >= 0.13
 pywavelets   >= 0.5.2
