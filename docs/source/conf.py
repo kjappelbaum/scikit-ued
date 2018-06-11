@@ -16,6 +16,8 @@
 #
 import os
 import sys
+import matplotlib
+matplotlib.use('agg')
 
 sys.path.insert(0, os.path.abspath('../..'))
 
@@ -25,7 +27,7 @@ import skued
 
 # If your documentation needs a minimal Sphinx version, state it here.
 #
-# needs_sphinx = '1.5'
+needs_sphinx = '1.0'
 from datetime import datetime
 import alabaster
 
@@ -40,11 +42,13 @@ extensions = ['alabaster',
               'sphinx.ext.autodoc',
 			  'sphinx.ext.napoleon',
 			  'sphinx.ext.mathjax',
+              'sphinx.ext.autosummary',
 			  'matplotlib.sphinxext.plot_directive']
 
 intersphinx_mapping = {'numpy': ('http://docs.scipy.org/doc/numpy/', None)}
 
 napoleon_google_docstring = False
+autosummary_generate = True
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -117,8 +121,9 @@ intersphinx_mapping = {
 }
 
 # Autodoc settings
-autodoc_default_flags = ['members', 'special-members']
+autodoc_default_flags = ['members']
 autoclass_content = 'both'
+autodoc_member_order = 'groupwise'
 
 
 def autodoc_skip_member(app, what, name, obj, skip, options):

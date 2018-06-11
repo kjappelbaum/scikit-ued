@@ -14,21 +14,25 @@ environment:
                         # to the matrix section.
       TEST_CMD: "python -m unittest discover --verbose"
 
+      CONDA_DEPENDENCIES: "numpy scipy cython scikit-image"
+      PIP_DEPENDENCIES: "pywavelets spglib pycifrw ase npstreams tifffile"
+
   matrix:
 
       - PYTHON_VERSION: "3.6"
-        CONDA_DEPENDENCIES: "numpy scipy cython scikit-image"
-        PIP_DEPENDENCIES: "pywavelets spglib pycifrw"
-
-      - PYTHON_VERSION: "3.5"
-        CONDA_DEPENDENCIES: "numpy scipy cython scikit-image"
-        PIP_DEPENDENCIES: "pywavelets spglib pycifrw"
 
 matrix:
    fast_finish: true
 
 platform:
     -x64
+
+# Skipping commits affecting specific files (GitHub only). More details here: /docs/appveyor-yml
+skip_commits:
+  files:
+    - docs/*
+    - external/*
+    - '**/*.rst'
 
 install:
 

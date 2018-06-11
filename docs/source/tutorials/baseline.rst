@@ -2,9 +2,9 @@
 
 .. _baseline_tutorial:
 
-************************
-Baseline Tutorials
-************************
+**********************
+Baseline-determination
+**********************
 
 Contents
 ========
@@ -78,7 +78,7 @@ Scikit-ued offers two ways of removing the background.
 Iterative Baseline Determination using the Discrete Wavelet Transform
 =====================================================================
 
-The procedure and rational for the :code:`baseline_dwt` routine is described in detail in:
+The procedure and rational for the :func:`baseline_dwt` routine is described in detail in:
 
 Galloway et al. 'An Iterative Algorithm for Background Removal in Spectroscopy by Wavelet 
 Transforms', Applied Spectroscopy pp. 1370 - 1376, September 2009.
@@ -87,7 +87,7 @@ Here is a usage example for the data presented above::
 
 	import numpy as np
 	from skued import gaussian
-	from skued.baseline import baseline_dwt
+	from skued import baseline_dwt
 
 	s, intensity = np.load('powder.npy')
 
@@ -103,7 +103,7 @@ Here is a usage example for the data presented above::
 	import matplotlib.pyplot as plt
 	import numpy as np
 	from skued import gaussian, spectrum_colors
-	from skued.baseline import baseline_dwt
+	from skued import baseline_dwt
 
 	s, intensity = np.load('powder.npy')
 
@@ -140,7 +140,7 @@ Here is a usage example for the data presented above::
 Iterative Baseline Determination using the Dual-Tree Complex Wavelet Transform
 ==============================================================================
 
-In the case of 1D data (or along a 1D axis), there is a more performant alternative to :code:`baseline_dwt`. The 
+In the case of 1D data (or along a 1D axis), there is a more performant alternative to :func:`baseline_dwt`. The 
 **dual-tree complex wavelet transform** improves on the discrete wavelet transform in many ways.
 Therefore, the method presented in this section should be preferred.
 
@@ -153,7 +153,7 @@ Here is a usage example for the data presented above::
 
 	import numpy as np
 	from skued import gaussian
-	from skued.baseline import baseline_dt
+	from skued import baseline_dt
 
 	s, intensity = np.load('powder.npy')
 
@@ -169,7 +169,7 @@ Here is a usage example for the data presented above::
 	import matplotlib.pyplot as plt
 	import numpy as np
 	from skued import gaussian, spectrum_colors
-	from skued.baseline import baseline_dt
+	from skued import baseline_dt
 
 	s, intensity = np.load('powder.npy')
 
@@ -201,7 +201,7 @@ Here is a usage example for the data presented above::
 		ax.legend()
 	plt.show()
 
-The :code:`baseline_dt` routine will usually be more accurate than its :code:`baseline_dwt` counterpart.
-However, :code:`baseline_dwt` can be applied to 1D and 2D data.
+The :func:`baseline_dt` routine will usually be more accurate than its :func:`baseline_dwt` counterpart.
+However, :func:`baseline_dwt` can be applied to 1D and 2D data.
 
 :ref:`Return to Top <baseline_tutorial>`

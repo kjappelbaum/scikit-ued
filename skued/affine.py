@@ -6,6 +6,7 @@ Inspired by Christoph Gohlke's transformation.py <http://www.lfd.uci.edu/~gohlke
 """
 
 import math
+
 import numpy as np
 
 #standard basis
@@ -27,8 +28,7 @@ def affine_map(array):
 
 	Raises
 	------
-	ValueError
-		If the transformation matrix is neither 3x3 or 4x4
+	ValueError : If the transformation matrix is neither 3x3 or 4x4
     """
     if array.shape == (4,4):        #Already the right shape
         return array
@@ -59,8 +59,7 @@ def transform(matrix, array):
 
 	Raises
 	------
-	ValueError
-		If the transformation matrix is neither 3x3 or 4x4
+	ValueError : If the transformation matrix is neither 3x3 or 4x4
     """
 	if matrix.shape not in [(3,3), (4,4)]:
 		raise ValueError('Input matrix is neither a 3x3 or 4x4 matrix, but \
@@ -83,12 +82,17 @@ def translation_matrix(direction):
 	Parameters
 	----------
 	direction : array_like, shape (3,)
+
+	Returns
+	-------
+	translation : `~numpy.ndarray`, shape (4,4)
+		4x4 translation matrix.
     """
     matrix = np.eye(4)
     matrix[:3, 3] = np.asarray(direction)[:3]
     return matrix
 
-def change_of_basis(basis1, basis2 = [e1,e2,e3]):
+def change_of_basis(basis1, basis2 = (e1,e2,e3)):
 	"""
 	Returns the matrix that goes from one basis to the other.
     
@@ -101,7 +105,7 @@ def change_of_basis(basis1, basis2 = [e1,e2,e3]):
 
 	Returns
 	-------
-	cob : ndarray, shape (3,3)
+	cob : `~numpy.ndarray`, shape (3,3)
 		Change-of-basis matrix that, applied to `basis`, will
 		return `basis2`.
 	"""
@@ -127,6 +131,7 @@ def is_basis(basis):
 	Returns
 	-------
 	out : bool
+		Whether or not the basis is valid.
 	"""
 	return (0 not in np.linalg.eigvals(np.asarray(basis)))
 
@@ -155,7 +160,7 @@ def is_rotation_matrix(matrix):
     unit_determinant = np.allclose(abs(np.linalg.det(matrix)), 1)
     return is_orthogonal and unit_determinant
 
-def rotation_matrix(angle, axis = [0,0,1]):
+def rotation_matrix(angle, axis = (0,0,1)):
 	""" 
 	Return matrix to rotate about axis defined by direction around the origin [0,0,0].
 	To combine rotation and translations, see http://www.euclideanspace.com/maths/geometry/affine/matrix4x4/index.htm
@@ -169,7 +174,7 @@ def rotation_matrix(angle, axis = [0,0,1]):
     
 	Returns
 	-------
-	matrix : ndarray, shape (3,3)
+	matrix : `~numpy.ndarray`, shape (3,3)
 		Rotation matrix.
 
 	See also
@@ -207,7 +212,7 @@ def translation_rotation_matrix(angle, axis, translation):
 
 	Returns
 	-------
-	matrix : ndarray, shape (4,4)
+	matrix : `~numpy.ndarray`, shape (4,4)
 		Affine transform matrix.
 	"""
 	rmat = affine_map(rotation_matrix(angle = angle, axis = axis))
@@ -229,7 +234,7 @@ def change_basis_mesh(xx, yy, zz, basis1, basis2):
     
     Returns
     -------
-    XX, YY, ZZ : ndarrays
+    XX, YY, ZZ : `~numpy.ndarray`
     """
     # Build coordinate array row-wise
     changed = np.empty(shape = (3, xx.size), dtype = np.float)
@@ -258,7 +263,7 @@ def minimum_image_distance(xx, yy, zz, lattice):
     
 	Returns
 	-------
-	r : ndarray
+	r : `~numpy.ndarray`
 		Minimum image distance over the lattice
 	"""
 	COB = change_of_basis(np.eye(3), lattice)

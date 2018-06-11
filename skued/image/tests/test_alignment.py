@@ -6,35 +6,45 @@ from skimage import data
 from skimage.filters import gaussian
 from skimage.transform import rotate
 
-from .. import shift_image, align, diff_register
+from .. import shift_image, align, diff_register, ialign, itrack_peak
 from .test_powder import circle_image
 
 np.random.seed(23)
 
 class TestDiffRegister(unittest.TestCase):
 
-	def test_trivial_skimage_data(self):
+	def test_trivial_skimage_data_cropped(self):
 		""" Test that the translation between two identical images is (0,0), even
-		with added random noise and random masks """
+		with added random noise and random masks, with diff_register(..., crop = True) """
 
 		im = np.asfarray(data.camera())
 
 		with self.subTest('No noise'):
-			shift = diff_register(im, im)
-
+			shift = diff_register(im, im, crop = True)
 			self.assertTrue(np.allclose(shift, (0,0), atol = 1))
 		
 		with self.subTest('With 5% noise'):
 			noise1 = 0.05 * im.max() * np.random.random(size = im.shape)
 			noise2 = 0.05 * im.max() * np.random.random(size = im.shape)
 
-			shift = diff_register(im + noise1, im + noise2)
+			shift = diff_register(im + noise1, im + noise2, crop = True)
+			self.assertTrue(np.allclose(shift, (0,0), atol = 1))
+
+	def test_trivial_skimage_data_no_crop(self):
+		""" Test that the translation between two identical images is (0,0), even
+		with added random noise and random masks, with diff_register(..., crop = False) """
+
+		im = np.asfarray(data.camera())
+
+		with self.subTest('No noise'):
+			shift = diff_register(im, im, crop = False)
 			self.assertTrue(np.allclose(shift, (0,0), atol = 1))
 		
-		with self.subTest('With random masks'):
-			m1 = np.random.choice([True, False], size = im.shape)
+		with self.subTest('With 5% noise'):
+			noise1 = 0.05 * im.max() * np.random.random(size = im.shape)
+			noise2 = 0.05 * im.max() * np.random.random(size = im.shape)
 
-			shift = diff_register(im, im, m1)
+			shift = diff_register(im + noise1, im + noise2, crop = False)
 			self.assertTrue(np.allclose(shift, (0,0), atol = 1))
 	
 	def test_shifted_skimage_data(self):
@@ -61,10 +71,11 @@ class TestDiffRegister(unittest.TestCase):
 			shift = diff_register(im + noise1, im2 + noise2, edge_mask)
 			self.assertTrue(np.allclose(shift, -random_shift, atol = 1))
 		
-		with self.subTest('With random mask'):
-			m1 = np.random.choice([True, False], size = im.shape)
+		with self.subTest('No crop with 10% noise'):
+			noise1 = 0.1 * im.max() * np.random.random(size = im.shape)
+			noise2 = 0.1 * im.max() * np.random.random(size = im.shape)
 
-			shift = diff_register(im, im2, m1)
+			shift = diff_register(im + noise1, im2 + noise2, edge_mask, crop = False)
 			self.assertTrue(np.allclose(shift, -random_shift, atol = 1))
 	
 	def test_side_effects(self):
@@ -77,7 +88,55 @@ class TestDiffRegister(unittest.TestCase):
 		for arr in (im1, im2, mask):
 			arr.setflags(write = False)
 		
-		shift = diff_register(im1, im2, mask)
+		shift = diff_register(im1, im2, mask, crop = True, sigma = 5)
+		shift = diff_register(im1, im2, mask, crop = False, sigma = 5)
+		shift = diff_register(im1, im2, mask, crop = True, sigma = None)
+		shift = diff_register(im1, im2, mask, crop = False, sigma = None)
+
+class TestIAlign(unittest.TestCase):
+
+	def test_trivial(self):
+		""" Test alignment of identical images """
+		aligned = tuple(ialign([data.camera() for _ in range(5)]))
+		
+		self.assertEqual(len(aligned), 5)
+		self.assertSequenceEqual(data.camera().shape, aligned[0].shape)
+		
+	def test_misaligned_canned_images_fast(self):
+		""" shift images from skimage.data by entire pixels.
+	   We don't expect perfect alignment."""
+		original = data.camera()
+		misaligned = [shift_image(original, (randint(-4, 4), randint(-4, 4))) 
+					  for _ in range(5)]
+
+		aligned = ialign(misaligned, reference = original, fast = True)
+
+		# TODO: find a better figure-of-merit for alignment
+		for im in aligned:
+			# edge will be filled with zeros, we ignore
+			diff = np.abs(original[5:-5, 5:-5] - im[5:-5, 5:-5])
+
+			# Want less than 1% difference
+			percent_diff = np.sum(diff) / (diff.size * (original.max() - original.min()))
+			self.assertLess(percent_diff, 1)
+
+	def test_misaligned_canned_images_notfast(self):
+		""" shift images from skimage.data by entire pixels.
+	   We don't expect perfect alignment."""
+		original = data.camera()
+		misaligned = [shift_image(original, (randint(-4, 4), randint(-4, 4))) 
+					  for _ in range(5)]
+
+		aligned = ialign(misaligned, reference = original, fast = False)
+
+		# TODO: find a better figure-of-merit for alignment
+		for im in aligned:
+			# edge will be filled with zeros, we ignore
+			diff = np.abs(original[5:-5, 5:-5] - im[5:-5, 5:-5])
+
+			# Want less than 1% difference
+			percent_diff = np.sum(diff) / (diff.size * (original.max() - original.min()))
+			self.assertLess(percent_diff, 1)
 
 class TestShiftImage(unittest.TestCase):
 	
@@ -94,6 +153,12 @@ class TestShiftImage(unittest.TestCase):
 		shifted2 = shift_image(shifted1, (-5, 3))
 		self.assertTrue(np.allclose(arr[5:-5, 5:-5], shifted2[5:-5, 5:-5]))
 	
+	def test_return_type(self):
+		""" Test that a shifted array will cast accordingly to the fill_value """
+		arr = np.random.randint(0, 255, size = (64, 64), dtype = np.uint8)
+		shifted = shift_image(arr, shift = (10, 10), fill_value = np.nan) # np.nan is float
+		self.assertEqual(shifted.dtype, np.float)
+	
 	def test_out_of_bounds(self):
 		""" Test that shifting by more than the size of an array
 		returns an array full of the fill_value parameter """
@@ -106,33 +171,23 @@ class TestShiftImage(unittest.TestCase):
 		arr = np.random.random( size = (64, 64) )
 		shifted = shift_image(arr, shift = (0, 10), fill_value = np.nan)
 		self.assertTrue(np.all(np.isnan(shifted[:10, :])))
-	
-	def test_axes(self):
-		""" Test shift_image on 3D array """
-		arr = np.random.random( size = (64, 64, 8) )
-		shifted = shift_image(arr, shift = (0, 10), fill_value = np.nan, axes = (1, 2))
-		self.assertTrue(np.all(np.isnan(shifted[:, :10, :])))
 
 class TestAlign(unittest.TestCase):
+	
+	def test_no_side_effects(self):
+		""" Test that aligned images are not modified in-place """
+		im = np.array(data.camera()[0:64, 0:64])
+		im.setflags(write = False)
+		aligned = align(im, reference = im, fill_value = np.nan)
+		self.assertEqual(im.dtype, data.camera().dtype)
 
-	def test_trivial(self):
-		""" Test alignment of identical images """
-		im = data.coins()[0:64, 0:64]
-		aligned = align(im, reference = im)
-
-		diff = np.abs(im - aligned)
-
-		# Want less than 1% difference
-		percent_diff = np.sum(diff) / (diff.size * (im.max() - im.min()))
-		self.assertLess(percent_diff, 1)
-
-	def test_misaligned_canned_images(self):
+	def test_misaligned_canned_images_fast(self):
 		""" shift images from skimage.data by entire pixels.
-	   We don't expect perfect alignment."""
+	   	We don't expect perfect alignment."""
 		original = data.camera()
 		misaligned = shift_image(original, (randint(-4, 4), randint(-4, 4))) 
 
-		aligned = align(misaligned, reference = original)
+		aligned = align(misaligned, reference = original, fast = True)
 
 		# edge will be filled with zeros, we ignore
 		diff = np.abs(original[5:-5, 5:-5] - aligned[5:-5, 5:-5])
@@ -140,6 +195,42 @@ class TestAlign(unittest.TestCase):
 		# Want less than 1% difference
 		percent_diff = np.sum(diff) / (diff.size * (original.max() - original.min()))
 		self.assertLess(percent_diff, 1)
+
+	def test_misaligned_canned_images_notfast(self):
+		""" shift images from skimage.data by entire pixels.
+	   	We don't expect perfect alignment."""
+		original = data.camera()
+		misaligned = shift_image(original, (randint(-4, 4), randint(-4, 4))) 
+
+		aligned = align(misaligned, reference = original, fast = False)
+
+		# edge will be filled with zeros, we ignore
+		diff = np.abs(original[5:-5, 5:-5] - aligned[5:-5, 5:-5])
+
+		# Want less than 1% difference
+		percent_diff = np.sum(diff) / (diff.size * (original.max() - original.min()))
+		self.assertLess(percent_diff, 1)
+
+class TestItrackPeak(unittest.TestCase):
+
+    def test_trivial(self):
+        """ Test that shift is identically zero for images that are identical """
+        # Array prototype is just zeros
+        # with a 'peak' in the center
+        prototype = np.zeros(shape = (17, 17))
+        prototype[9,9] = 10
+        images = [np.array(prototype) for _ in range(20)]
+        shifts = itrack_peak(images, row_slice = np.s_[:], col_slice = np.s_[:])
+
+        for shift in shifts:
+            self.assertTrue(np.allclose(shift, (0.0, 0.0)))
+
+    def test_length(self):
+        """ Test that shifts yielded by itrack_peak are as numerous as the number of input pictures """
+        images = [np.random.random(size = (4,4)) for _ in range(20)]
+        shifts = list(itrack_peak(images, row_slice = np.s_[:], col_slice = np.s_[:]))
+
+        self.assertEqual(len(shifts), len(images))
 
 if __name__ == '__main__':
 	unittest.main()

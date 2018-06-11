@@ -1,5 +1,6 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+notebook/
 *.py[cod]
 *$py.class
 
@@ -8,9 +9,13 @@ __pycache__/
 
 # Visual studio cache
 *.vs/
+*.vscode/
 
-# Protein DataBank cache folder
-pdb_cache/
+# Protein DataBank files and cache folder
+*.ent
+
+# Structure file caches
+*_cache/
 
 # Jupyter notebooks
 notebooks/
@@ -71,6 +76,9 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+docs/source/functions/
+docs/source/classes/
+
 
 # PyBuilder
 target/
@@ -99,4 +107,11 @@ ENV/
 
 # PyCharm
 .idea/
+
+# File caches
+test_cache/
+cod_cache/
+pdb_cache/
+
+# Misc
 benchmark.py

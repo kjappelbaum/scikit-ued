@@ -4,43 +4,93 @@ scikit-ued
 .. image:: https://img.shields.io/appveyor/ci/LaurentRDC/scikit-ued/master.svg
     :target: https://ci.appveyor.com/project/LaurentRDC/scikit-ued
     :alt: Windows Build Status
-.. image:: https://readthedocs.org/projects/scikit-ued/badge/?version=latest
+.. image:: https://readthedocs.org/projects/scikit-ued/badge/?version=master
     :target: http://scikit-ued.readthedocs.io
     :alt: Documentation Build Status
 .. image:: https://img.shields.io/pypi/v/scikit-ued.svg
-    :target: https://pypi.python.org/pypi/scikit-ued
+    :target: https://pypi.org/project/scikit-ued/
     :alt: PyPI Version
+.. image:: https://img.shields.io/conda/vn/conda-forge/scikit-ued.svg
+    :target: https://anaconda.org/conda-forge/scikit-ued
+    :alt: Conda-forge Version
+.. image:: https://img.shields.io/pypi/pyversions/scikit-ued.svg
+    :alt: Supported Python Versions
 
-Collection of algorithms and functions for ultrafast electron diffraction.
+Collection of algorithms and functions for ultrafast electron diffraction. It aims to be a fully-tested package
+taking advantage of Python's most recent features.
 
-Getting Started with scikit-ued
--------------------------------
+For examples, see our `tutorials <https://scikit-ued.readthedocs.io/en/latest/tutorials/index.html>`_.
 
-scikit-ued is available on PyPI; it can be installed with `pip <https://pip.pypa.io>`_.::
+API Reference
+-------------
+
+The `API Reference on readthedocs.io <https://scikit-ued.readthedocs.io>`_ provides API-level documentation, as 
+well as tutorials.
+
+Installation
+------------
+
+scikit-ued is available on PyPI; it can be installed with `pip <https://pip.pypa.io>`_::
 
     python -m pip install scikit-ued
+
+scikit-ued is also available on the conda-forge channel for the `conda package manager <https://conda.io/docs/>`_::
+
+    conda config --add channels conda-forge
+    conda install scikit-ued
 
 To install the latest development version from `Github <https://github.com/LaurentRDC/scikit-ued>`_::
 
     python -m pip install git+git://github.com/LaurentRDC/scikit-ued.git
 
-Each version is tested against Python 3.5 and 3.6. If you are using a different version, tests can be run
+After installing scikit-ued you can use it like any other Python module as ``skued``.
+
+Each version is tested against **Python 3.6**. If you are using a different version, tests can be run
 using the standard library's `unittest` module.
 
-After installing scikit-ued you can use it like any other Python module as :code:`skued`.
+Installation on Windows
+-----------------------
+
+Some of scikit-ued's dependencies require compilation. If you are experiencing problems installing scikit-ued on Windows, here are some potential solutions:
+
+* Install a C/C++ compiler. The easiest way to do so is to install the `Visual Studio Build Tools <https://www.visualstudio.com/downloads/?q=build+tools>`_. More information is available on the `Python Wiki <https://wiki.python.org/moin/WindowsCompilers>`_. Don't forget to upgrade setuptools to the latest version as well to avoid common problems::
+
+    pip install --upgrade setuptools
+
+* Download the wheels from scikit-ued's `wheelhouse <https://github.com/LaurentRDC/scikit-ued/tree/master/wheelhouse>`_. These are pre-compiled dependencies that will only work on Windows. To install a wheel, you can use pip::
+
+    pip install some-pkg.whl
+
+* Install the dependencies using the `conda package manager <https://conda.io/docs/>`_. Most notably, spglib and pycifrw are both available in the conda-forge channel::
+
+    conda config --add channels conda-forge
+    conda install spglib pycifrw numpy scipy ...
+
+Optional dependencies
+---------------------
+
+While it is not strictly required, the Fourier transform routines from ``pyfftw`` will be preferred If
+``pyfftw`` is installed.
+
+For displaying diffraction images with interactive contrast using the ``skued.diffshow`` function, PyQtGraph is required.
+
+Related projects
+----------------
+
+Streaming operations on NumPy arrays are available in the `npstreams package <https://pypi.org/pypi/npstreams>`_.
+
+Interactive exploration of ultrafast electron diffraction data with the `iris-ued package <https://pypi.org/project/iris-ued/>`_.
+
+A graphical user interface for the dual-tree complex wavelet transform baseline-removal routine is available as a 
+`separate package <https://pypi.org/pypi/dtgui>`_.
 
 Citations
 ---------
 
-If you are using the :code:`skued.baseline` subpackage, consider citing the following publication:
+If you are using the baseline-removal functionality of scikit-ued, please consider citing the following publication:
 
     .. [#] L. P. René de Cotret and B. J. Siwick, A general method for baseline-removal in ultrafast 
            electron powder diffraction data using the dual-tree complex wavelet transform, Struct. Dyn. 4 (2017) DOI: 10.1063/1.4972518.
-
-API Reference
--------------
-
-The `API Reference on readthedocs.io <http://scikit-ued.readthedocs.io>`_ provides API-level documentation.
 
 Support / Report Issues
 -----------------------

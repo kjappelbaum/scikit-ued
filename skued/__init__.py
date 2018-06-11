@@ -2,15 +2,31 @@
 __author__ = 'Laurent P. René de Cotret'
 __email__ = 'laurent.renedecotret@mail.mcgill.ca'
 __license__ = 'MIT'
-__version__ = '0.4.6' # TODO: automatic versioning?
+__version__ = '1.0.1.1'
 
-from .affine import (affine_map, change_basis_mesh, change_of_basis, is_basis,
-                     is_rotation_matrix, minimum_image_distance,
-                     rotation_matrix, transform, translation_matrix,
-                     translation_rotation_matrix)
-from .array_utils import mirror, repeated_array
-from .laplace import laplace
-from .parallel import pmap, preduce
-from .plot_utils import spectrum_colors
-from .quantities import electron_wavelength, interaction_parameter, lorentz
-from .voigt import gaussian, lorentzian, pseudo_voigt
+from .affine        import (affine_map, change_basis_mesh, change_of_basis, is_basis,
+                            is_rotation_matrix, minimum_image_distance,
+                            rotation_matrix, transform, translation_matrix,
+                            translation_rotation_matrix)
+from .array_utils   import (cart2polar, cart2spherical, mirror, plane_mesh,
+                            polar2cart, repeated_array, spherical2cart,
+                            complex_array)
+from .baseline      import (baseline_dt, baseline_dwt, dtcwt, idtcwt, dt_max_level, available_dt_filters,
+                            available_first_stage_filters)
+from .eproperties   import (electron_velocity, electron_wavelength,
+                            interaction_parameter, lorentz)
+from .image         import (align, azimuthal_average, combine_masks, diff_register,
+                            ialign, isnr, mask_from_collection, mask_image, mnxc2,
+                            nfold, powder_center, reflection, shift_image, snr_from_collection,
+                            triml, trimr, xcorr, itrack_peak, powder_calq)
+from .io            import diffread, diffshow, dmread, mibheader, mibread, imibread
+from .laplace       import laplace
+from .plot_utils    import rgb_sweep, spectrum_colors
+from .potential_map import potential_map
+from .simulation    import (affe, bounded_reflections, electrostatic,
+                            pelectrostatic, powdersim, structure_factor)
+from .structure     import (Atom, AtomicStructure, Crystal, Lattice, 
+                            symmetry_expansion, lattice_system, LatticeSystem)
+from .thin_films    import film_optical_coefficients
+from .time_series   import time_shift, time_shifts, nfftfreq, nfft, mad
+from .voigt         import gaussian, lorentzian, pseudo_voigt

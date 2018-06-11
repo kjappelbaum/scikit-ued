@@ -5,7 +5,7 @@ Algorithms based on the dual-tree complex wavelet transform
 """
 from collections.abc import Iterable
 import pywt
-from . import dtcwt, idtcwt
+from .dtcwt import dtcwt, idtcwt
 import numpy as np
 from functools import partial
 from warnings import warn
@@ -13,6 +13,9 @@ from warnings import warn
 def _iterative_baseline(array, max_iter, mask, background_regions, axes, approx_rec_func, func_kwargs):
 	""" Base function for iterative baseline determination """
 	array = np.asarray(array, dtype = np.float)
+
+	if background_regions is None:
+		background_regions = []
 
 	if isinstance(axes, int):
 		axes = (axes,)
@@ -31,8 +34,13 @@ def _iterative_baseline(array, max_iter, mask, background_regions, axes, approx_
 	if mask is None:
 		mask = np.zeros_like(array, dtype = np.bool)
 	
-	signal = np.array(array, copy = True)
-	background = np.zeros_like(array, dtype = np.float)
+	# Preparation for loop
+	original_signal 	 = np.array(array, copy = True)
+	signal 				 = np.array(original_signal, copy = True)
+	background 			 = np.zeros_like(signal, dtype = np.float)
+	background_too_large = np.empty_like(background, dtype = np.bool)
+	signal_too_large     = np.empty_like(background, dtype = np.bool)
+
 	for i in range(max_iter):
 		
 		# Make sure the background values are equal to the original signal values in the
@@ -41,11 +49,18 @@ def _iterative_baseline(array, max_iter, mask, background_regions, axes, approx_
 			signal[index] = array[index]
 
 		# Wavelet reconstruction using approximation coefficients
+		# Note : the baseline cannot physically be negative
 		background[:] = approx_rec(signal)
+		np.clip(background, a_min = 0, a_max = None, out = background)
+
+		# The baseline cannot physically be larger than the original signal
+		np.greater(background, original_signal, out = background_too_large)
+		background[background_too_large] = signal[background_too_large]
 		
 		# Modify the signal so it cannot be more than the background
 		# This reduces the influence of the peaks in the wavelet decomposition
-		signal[signal > background] = background[signal > background]
+		np.greater(signal, background, out = signal_too_large)
+		signal[signal_too_large] = background[signal_too_large]
 	
 	# The background should be identically 0 where the data points are invalid
 	background[mask] = 0 
@@ -120,8 +135,7 @@ def _dwt_approx_rec(array, level, wavelet, mode, axis):
     
 	Raises
 	------    
-	ValueError
-		If input array has dimension > 2 
+	ValueError : If input array has dimension > 2 
 	"""
 	if isinstance(axis, Iterable):
 		axis = axis[0]
@@ -158,7 +172,7 @@ def _dwt_approx_rec(array, level, wavelet, mode, axis):
 	# Sometimes pywt.waverec returns a signal that is longer than the original signal
 	while reconstructed.shape[axis] > array.shape[axis]:
 		reconstructed = np.swapaxes(np.swapaxes(reconstructed, 0, axis)[:array.shape[axis]], 0, axis)
-	return  reconstructed
+	return reconstructed
 
 def _dwt_approx_rec2(array, level, wavelet, mode, axis):
 	"""
@@ -189,8 +203,7 @@ def _dwt_approx_rec2(array, level, wavelet, mode, axis):
     
 	Raises
 	------    
-	ValueError
-		If input array has dimension > 2 
+	ValueError : If input array has dimension > 2 
 	"""
 	array = np.asarray(array, dtype = np.float)
 	for ax in axis:
@@ -230,10 +243,10 @@ def _dwt_approx_rec2(array, level, wavelet, mode, axis):
 	return reconstructed
 
 def baseline_dt(array, max_iter, level = None, first_stage = 'sym6', wavelet = 'qshift1', 
-				background_regions = [], mask = None, mode = 'constant', axis = -1):
+				background_regions = None, mask = None, mode = 'constant', axis = -1):
 	"""
-	Iterative method of baseline determination based on the dual-tree complex wavelet transform.
-	This function only works in 1D, along an axis. For baseline of 2D arrays, see baseline_dwt.
+	Iterative method of baseline-determination based on the dual-tree complex wavelet transform.
+	This function only works in 1D, along an axis. For baseline of 2D arrays, see :func:`baseline_dwt`.
 
 	Parameters
 	----------
@@ -246,24 +259,19 @@ def baseline_dt(array, max_iter, level = None, first_stage = 'sym6', wavelet = '
 		the input signal (read: a lower frequency baseline). If None (default), the maximum level
 		possible is used.
 	first_stage : str, optional
-		Wavelet to use for the first stage. See skued.baseline.ALL_FIRST_STAGE for a list of suitable arguments
+		Wavelet to use for the first stage. See :func:`skued.available_first_stage_filters` for a list of suitable arguments
 	wavelet : str, optional
 		Wavelet to use in stages > 1. Must be appropriate for the dual-tree complex wavelet transform.
-		See skued.baseline.ALL_COMPLEX_WAV for possible values.
-	background_regions : iterable, optional
+		See :func:`skued.available_dt_filters` for possible values.
+	background_regions : iterable or None, optional
 		Indices of the array values that are known to be purely background. Depending
 		on the dimensions of array, the format is different:
-		
-		``array.ndim == 1``
-			`background_regions` is a list of ints (indices) or slices
-			E.g. >>> background_regions = [0, 7, 122, slice(534, 1000)]
-			
-		``array.ndim == 2``
-			`background_regions` is a list of tuples of ints (indices) or tuples of slices
-			E.g. >>> background_regions = [(14, 19), (42, 99), (slice(59, 82), slice(81,23))]
-			
-		Default is empty list.
 
+		* 1D signal: `background_regions` is a list of ints (indices) or slices, e.g. ``[0, 7, slice(534, 1000)]``.
+
+		* 2D signal: `background_regions` is a list of tuples of ints (indices) or tuples of slices, e.g. ``[(14, 19), (slice(59, 82), slice(81,23))]``.
+
+		Default is empty list.
 	mask : `~numpy.ndarray`, dtype bool, optional
 		Mask array that evaluates to True for pixels that are invalid. 
 	mode : str, optional
@@ -286,7 +294,7 @@ def baseline_dt(array, max_iter, level = None, first_stage = 'sym6', wavelet = '
 									func_kwargs = {'level': level, 'wavelet': wavelet, 'mode': mode,
 													'first_stage': first_stage, 'axis': axis})
 
-def baseline_dwt(array, max_iter, level = None, wavelet = 'sym6', background_regions = [], 
+def baseline_dwt(array, max_iter, level = None, wavelet = 'sym6', background_regions = None, 
 				 mask = None, mode = 'constant', axis = -1):
 	"""
 	Iterative method of baseline determination, based on the discrete wavelet transform. 
@@ -304,20 +312,15 @@ def baseline_dwt(array, max_iter, level = None, wavelet = 'sym6', background_reg
 	wavelet : PyWavelet.Wavelet object or str, optional
 		Wavelet with which to perform the algorithm. See PyWavelet documentation
 		for available values. Default is 'sym6'.
-	background_regions : list, optional
+	background_regions : iterable or None, optional
 		Indices of the array values that are known to be purely background. Depending
 		on the dimensions of array, the format is different:
-		
-		``array.ndim == 1``
-			`background_regions` is a list of ints (indices) or slices
-			E.g. >>> background_regions = [0, 7, 122, slice(534, 1000)]
-			
-		``array.ndim == 2``
-			`background_regions` is a list of tuples of ints (indices) or tuples of slices
-			E.g. >>> background_regions = [(14, 19), (42, 99), (slice(59, 82), slice(81,23))]
-			
-		Default is empty list.
 
+		* 1D signal: `background_regions` is a list of ints (indices) or slices, e.g. ``[0, 7, slice(534, 1000)]``.
+
+		* 2D signal: `background_regions` is a list of tuples of ints (indices) or tuples of slices, e.g. ``[(14, 19), (slice(59, 82), slice(81,23))]``.
+
+		Default is empty list.
 	mask : `~numpy.ndarray`, dtype bool, optional
 		Mask array that evaluates to True for pixels that are invalid. Useful to determine which pixels are masked
 		by a beam block.

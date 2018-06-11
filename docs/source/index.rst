@@ -11,12 +11,6 @@ modeling in (ultrafast) electron diffraction. The goal is to provide
 tested, efficients algorithms and routines to students and researchers 
 in electron diffraction and related fields.
 
-The code presented herein has been in use at some point by the 
-`Siwick research group <http://www.mcgill.physics.ca/siwicklab>`_.
-
-.. warning::
-        This code is in development and may break without warning.
-
 Links
 =====
 
@@ -33,8 +27,22 @@ General Documentation
     :maxdepth: 2
 
     installation
-    tutorials/index
+    tutorials/baseline
+    tutorials/structure
+    tutorials/image
+    tutorials/plotting
+    tutorials/simulation
     api
+
+Related Projects
+================
+
+Streaming operations on NumPy arrays are available in the `npstreams package <https://pypi.python.org/pypi/npstreams>`_.
+
+Interactive exploration of ultrafast electron diffraction data is possible using the `iris package <https://pypi.python.org/pypi/iris-ued>`_.
+
+A graphical user interface for the dual-tree complex wavelet transform baseline-removal routine is available as a 
+`separate package <https://pypi.python.org/pypi/dtgui>`_.
 
 Authors
 =======

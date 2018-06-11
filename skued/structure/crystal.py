@@ -1,417 +1,374 @@
 # -*- coding: utf-8 -*-
-from collections.abc import Iterable
 from copy import deepcopy as copy
-from glob import glob
 from functools import lru_cache
-from itertools import count, product, takewhile
-import os
-from tempfile import TemporaryDirectory
+from glob import glob
+from itertools import islice
+from os import mkdir
+from pathlib import Path
 from urllib.request import urlretrieve
-from warnings import warn
 
 import numpy as np
-from numpy import pi
-from numpy.linalg import norm
+from spglib import (find_primitive, get_error_message, get_spacegroup_type,
+                    get_symmetry_dataset)
 
-from . import AtomicStructure, CIFParser, Lattice, PDBParser, frac_coords
-from .. import (affine_map, change_basis_mesh, change_of_basis,
-                is_rotation_matrix, minimum_image_distance, transform)
+from . import Atom, AtomicStructure, CIFParser, Lattice, PDBParser
+from .. import affine_map
+from .parsers import CIFParser, CODParser, PDBParser
 
-# Constants
-m = 9.109*10**(-31)     #electron mass in kg
-a0 = 0.5291             #in Angs
-e = 14.4                #electron charge in Volt*Angstrom
+CIF_ENTRIES = frozenset( (Path(__file__).parent / 'cifs').glob('*.cif') )
 
-CIF_ENTRIES = glob(os.path.join(os.path.dirname(__file__), 'cifs', '*.cif'))
+def symmetry_expansion(atoms, symmetry_operators):
+    """
+    Generate a set of unique atoms from an asymmetric cell and symmetry operators.
+
+    Parameters
+    ----------
+    atoms : iterable of Atom
+        Assymetric unit cell atoms. It is assumed that the atomic 
+        coordinates are in fractional form.
+    symmetry_operators : iterable of array_like
+        Symmetry operators that generate the full unit cell.
+    
+    Yields
+    ------
+    Atom
+    """
+    # TODO: provide ability to reduce to primitive, niggli_reduce, etc.
+    #       using spglib?
+    uniques = set([])
+    symmetry_operators = tuple(map(affine_map, symmetry_operators))
+
+    for atm in atoms:
+        for sym_op in symmetry_operators:
+            new = copy(atm)
+            new.transform(sym_op)
+            new.coords[:] = np.mod(new.coords, 1)
+            uniques.add(new)
+    yield from uniques
 
 class Crystal(AtomicStructure, Lattice):
-	"""
-	This object is the basis for inorganic crystals such as VO2, 
-	and protein crystals such as bR. 
+    """
+    The :class:`Crystal` class is a set-like container that represent crystalline structures. 
+
+    In addition to constructing the ``Crystal`` object yourself, other constructors
+    are also available (and preferred):
     
-	Attributes
-	----------
-	symmetry_operators : list of ndarrays
-		Symmetry operators that links the underlying AtomicStructure to the unit cell construction.
-		It is assumed that the symmetry operators operate on the fractional atomic coordinates.
-	unitcell : iterable of Atom objects
-		List of atoms in the crystal unitcell. iter(Crystal) is a generator that yields
-		the same atoms; this approach is preferred.
-	atoms : iterable
-		List of atoms in the asymmetric unit.
-	"""
+    * ``Crystal.from_cif``: create an instance from a CIF file;
+    
+    * ``Crystal.from_pdb``: create an instance from a Protein Data Bank entry;
+    
+    * ``Crystal.from_database``: create an instance from the internal database of CIF files;
+    
+    * ``Crystal.from_cod``: create an instance from a Crystallography Open Database entry.
 
-	builtins = set(map(lambda fn: os.path.basename(fn).split('.')[0], CIF_ENTRIES))
+    * ``Crystal.from_ase``: create an instance from an ``ase.Atoms`` instance.
 
-	def __init__(self, atoms, symmetry_operators = [np.eye(3)], **kwargs):
-		kwargs.update({'items': atoms}) # atoms argument is an alias for AtomicStructure.items
-		self.symmetry_operators = tuple(map(affine_map, symmetry_operators))
-		super().__init__(**kwargs)
-	
-	def __iter__(self):
-		unique_atoms = set([])	# set of unique atoms in fractional coordinates
-		to_real = change_of_basis(self.lattice_vectors, np.eye(3))
-		to_frac = change_of_basis(np.eye(3), self.lattice_vectors)
+    Parameters
+    ----------
+    unitcell : iterable of ``Atom``
+        Unit cell atoms. It is assumed that the atoms are in fractional coordinates.
+    lattice_vectors : iterable of array_like
+        Lattice vectors. If ``lattice_vectors`` is provided as a 3x3 array, it 
+        is assumed that each lattice vector is a row.
+    source : str or None, optional
+        Provenance, e.g. filename. Only used for bookkeeping.
+    """
 
-		for atm in self.atoms:
-			for sym_op in self.symmetry_operators:
-				sym_op = transform(sym_op, to_frac)
-				sym_op = transform(to_real, sym_op)
+    builtins = frozenset(map(lambda fn: fn.stem, CIF_ENTRIES))
 
-				new = copy(atm)
-				new.transform(sym_op)
+    def __init__(self, unitcell, lattice_vectors, source = None, **kwargs):
+        super().__init__(atoms = unitcell, lattice_vectors = lattice_vectors, **kwargs)
+        self.source = source
+    
+    @classmethod
+    @lru_cache(maxsize = len(builtins), typed = True) # saves a lot of time in tests
+    def from_cif(cls, path):
+        """
+        Returns a Crystal object created from a CIF 1.0, 1.1 or 2.0 file.
 
-				# 'Normalize' atom to be within the unit cell
-				frac = np.dot(to_frac, new.coords)
-				frac[:] = np.remainder(frac, 1.0)
-				new.coords[:] = np.round(np.dot(to_real, frac), 3)
-
-				unique_atoms.add(new)
-		
-		yield from iter(unique_atoms)
-	
-	def __len__(self):
-		return len(set(self))
-	
-	def __repr__(self):
-		return '< Crystal object with unit cell of {} atoms >'.format(len(self))
-	
-	def __eq__(self, other):
-		return isinstance(other, self.__class__) and (set(self) == set(other))
-
-	@classmethod
-	def from_cif(cls, path):
-		"""
-		Returns a Crystal object created from a CIF 1.0, 1.1 or 2.0 file.
-
-		Parameters
-		----------
-		path : str
-			File path
-		
-		References
-		----------
-		.. [#] Torbjorn Bjorkman, "CIF2Cell: Generating geometries for electronic structure programs", 
-			   Computer Physics Communications 182, 1183-1186 (2011). doi: 10.1016/j.cpc.2011.01.013
-		"""
-		with CIFParser(filename = path) as parser:
-			return Crystal(atoms = list(parser.atoms()), 
-						   lattice_vectors = parser.lattice_vectors(), 
-						   symmetry_operators = parser.symmetry_operators())
-	
-	@classmethod
-	def from_database(cls, name):
-		""" 
-		Returns a Crystal object create from the internal CIF database.
-
-		Parameters
-		----------
-		name : str
-			Name of tne databse entry. Available items can be retrieved from `Crystal.builtins`
-		"""
-		if name not in cls.builtins:
-			raise ValueError('Entry {} is not available in the database. See Crystal.builtins for valid entries.')
-		
-		path = os.path.join(os.path.dirname(__file__), 'cifs', name + '.cif')
-		return cls.from_cif(path)
-	
-	@classmethod
-	def from_cod(cls, num, revision = None):
-		""" 
-		Returns a Crystal object built from the Crystallography Open Database. 
-
-		Parameters
-		----------
-		num : int
-			COD identification number.
-		revision : int or None, optional
-			Revision number. If None (default), the latest revision is used.
-		"""
-		# TODO: caching
-		# TODO: move away from urlretrieve
-		# TODO: handle timeout
-		
-		# http://wiki.crystallography.net/howtoquerycod/
-		url = 'http://www.crystallography.net/cod/{}.cif'.format(num)
-
-		if revision is not None:
-			url = url + '@' + str(revision)
-			base = '{iden}-{rev}.cif'.format(iden = num, rev = revision)
-		else:
-			base = '{}.cif'.format(num)
-
-		with TemporaryDirectory() as directory:
-			filename = os.path.join(directory, base)
-			urlretrieve(url, filename)
-			return cls.from_cif(filename)
-
-	@classmethod
-	def from_pdb(cls, ID):
-		"""
-		Returns a Crystal object created from a Protein DataBank entry.
-
-		Parameters
-		----------
-		ID : str
-			Protein DataBank identification. The correct .pdb file will be downloaded,
-			cached and parsed.
-		"""
-		parser = PDBParser(ID = ID)
-		return Crystal(atoms = list(parser.atoms()), 
-					   lattice_vectors = parser.lattice_vectors(),
-					   symmetry_operators = parser.symmetry_operators())
-	
-	@property
-	def unitcell(self):
-		return list(iter(self))
-	
-	@property
-	def spglib_cell(self):
-		""" Returns the crystal structure in spglib's `cell` format."""
-		lattice = np.array(self.lattice_vectors)
-		positions = np.array([atom.frac_coords(self.lattice_vectors) for atom in iter(self)])
-		numbers = np.array(tuple(atom.atomic_number for atom in iter(self)))
-		return (lattice, positions, numbers)
-	
-	def periodicity(self):
-		"""
-		Crystal periodicity in x, y and z direction from the lattice constants.
-		This is effectively a bounding cube for the unit cell, which is itself a unit cell.
-
-		Parameters
-		----------
-		lattice : Lattice
-
-		Returns
-		-------
-		out : tuple
-			Periodicity in x, y and z directions [angstroms]
+        Parameters
+        ----------
+        path : path-like
+            File path
         
-		Notes
-		-----
-		Warning: the periodicity of the lattice depends on its orientation in real-space.
-		"""
-		# By definition of a lattice, moving by the projection of all Lattice
-		# vectors on an axis should return you to an equivalent lattice position
-		e1, e2, e3 = np.eye(3)
-		per_x = sum( (abs(np.vdot(e1,a)) for a in self.lattice_vectors) )
-		per_y = sum( (abs(np.vdot(e2,a)) for a in self.lattice_vectors) )
-		per_z = sum( (abs(np.vdot(e3,a)) for a in self.lattice_vectors) )
-		return per_x, per_y, per_z
-		
-	def potential(self, x, y, z):
-		"""
-		Scattering potential calculated on a real-space mesh, assuming an
-		infinite crystal.
+        References
+        ----------
+        .. [#] Torbjorn Bjorkman, "CIF2Cell: Generating geometries for electronic structure programs", 
+               Computer Physics Communications 182, 1183-1186 (2011). doi: 10.1016/j.cpc.2011.01.013
+        """
+        with CIFParser(filename = path) as parser:
+            return cls(unitcell = symmetry_expansion(parser.atoms(), parser.symmetry_operators()),
+                       lattice_vectors = parser.lattice_vectors(),
+                       source = str(path))
+    
+    @classmethod
+    def from_database(cls, name):
+        """ 
+        Returns a Crystal object create from the internal CIF database.
 
-		Parameters
-		----------
-		x, y, z : ndarrays
-			Real space coordinates mesh. 
+        Parameters
+        ----------
+        name : path-like
+            Name of tne databse entry. Available items can be retrieved from `Crystal.builtins`
+        """
+        if name not in cls.builtins:
+            raise ValueError('Entry {} is not available in the database. See \
+                              Crystal.builtins for valid entries.'.format(name))
         
-		Returns
-		-------
-		potential : `~numpy.ndarray`, dtype float
-			Linear superposition of atomic potential [V*Angs]
+        path = Path(__file__).parent / 'cifs' / (name + '.cif')
+        return cls.from_cif(path)
+    
+    @classmethod
+    def from_cod(cls, num, revision = None, download_dir = 'cod_cache', overwrite = False):
+        """ 
+        Returns a Crystal object built from the Crystallography Open Database. 
 
-		See also
-		--------
-		skued.minimum_image_distance
-		"""
-		# TODO: multicore
-		potential = np.zeros_like(x, dtype = np.float)
-		r = np.zeros_like(x, dtype = np.float)
-		for atom in self:
-			ax, ay, az = atom.coords
-			r[:] = minimum_image_distance(x - ax, y - ay, z - az, 
-										  lattice = self.lattice_vectors)
-			potential += atom.potential(r)
-		
-		# Due to sampling, x,y, and z might pass through the center of atoms
-		# Replace np.inf by the next largest value
-		m = potential[np.isfinite(potential)].max()
-		potential[np.isinf(potential)] = m
-		return potential
-	
-	def scattering_vector(self, h, k, l):
-		"""
-		Returns the scattering vector G from Miller indices.
-        
-		Parameters
-		----------
-		h, k, l : int or ndarrays
-			Miller indices.
-        
-		Returns
-		-------
-		G : array-like
-			If `h`, `k`, `l` are integers, returns a single array of shape (3,)
-			If `h`, `k`, `l` are arrays, returns three arrays Gx, Gy, Gz
-		"""
-		if isinstance(h, Iterable):
-			return change_basis_mesh(h, k, l, basis1 = self.reciprocal_vectors, basis2 = np.eye(3))
+        Parameters
+        ----------
+        num : int
+            COD identification number.
+        revision : int or None, optional
+            Revision number. If None (default), the latest revision is used.
+        download_dir : path-like object, optional
+            Directory where to save the CIF file. Default is a local folder in the current directory
+        overwrite : bool, optional
+            Whether or not to overwrite files in cache if they exist. If no revision 
+            number is provided, files will always be overwritten. 
+        """
+        with CODParser(num, revision, download_dir, overwrite) as parser:
+            return cls(unitcell = symmetry_expansion(parser.atoms(), parser.symmetry_operators()),
+                       lattice_vectors = parser.lattice_vectors(),
+                       source = 'COD num:{n} rev:{r}'.format(n = num, r = revision))
 
-		b1,b2,b3 = self.reciprocal_vectors
-		return int(h)*b1 + int(k)*b2 + int(l)*b3
-	
-	def miller_indices(self, G):
-		"""
-		Returns the miller indices associated with a scattering vector.
-        
-		Parameters
-		----------
-		G : array-like, shape (3,)
-			Scattering vector.
-        
-		Returns
-		-------
-		hkl : ndarray, shape (3,), dtype int
-			Miller indices [h, k, l].
-		"""
-		G = np.asarray(G, dtype = np.float)
-	
-		# Transformation matric between reciprocal space and miller indices
-		# TODO: refactor to use skued.change_of_basis
-		matrix_trans = np.empty(shape = (3,3), dtype = np.float)
-		for i in range(len(self.reciprocal_vectors)):
-			matrix_trans[:,i] = self.reciprocal_vectors[i]
+    @classmethod
+    def from_pdb(cls, ID, download_dir = 'pdb_cache', overwrite = False):
+        """
+        Returns a Crystal object created from a Protein DataBank entry.
 
-		matrix_trans = np.linalg.inv(matrix_trans)
-		return transform(matrix_trans, G).astype(np.int)
-	
-	def structure_factor_miller(self, h, k, l):
-		"""
-		Computation of the static structure factor from Miller indices.
+        Parameters
+        ----------
+        ID : str
+            Protein DataBank identification. The correct .pdb file will be downloaded,
+            cached and parsed.
+        download_dir : path-like object, optional
+            Directory where to save the PDB file. Default is a local folder in the current directory
+        overwrite : bool, optional
+            Whether or not to overwrite files in cache if they exist. If no revision 
+            number is provided, files will always be overwritten. 
+        """
+        with PDBParser(ID = ID, download_dir = download_dir) as parser:
+            return cls(unitcell = symmetry_expansion(parser.atoms(), parser.symmetry_operators()),
+                       lattice_vectors = parser.lattice_vectors(),
+                       source = parser.filename)
+    
+    @classmethod
+    def from_ase(cls, atoms):
+        """
+        Returns a Crystal object created from an ASE Atoms object.
         
-		Parameters
-		----------
-		h, k, l : array_likes or floats
-			Miller indices. Can be given in a few different formats:
+        Parameters
+        ----------
+        atoms : ase.Atoms
+            Atoms group.
+        """
+        lattice_vectors = atoms.get_cell()
+        
+        return cls(unitcell = [Atom.from_ase(atm) for atm in atoms], 
+                   lattice_vectors = lattice_vectors)
+    
+    # TODO: test against known XYZ file
+    def write_xyz(self, fname, comment = None):
+        """
+        Generate an atomic coordinates .xyz file from a crystal structure.
+
+        Parameters
+        ----------
+        fname : path-like
+            The XYZ file will be written to this file. If the file already exists,
+            it will be overwritten.
+        comment : str or None, optional
+            Comment to include at the second line of ``fname``.
+        """
+        # Format is specified here:
+        #   http://openbabel.org/wiki/XYZ_%28format%29
+        comment = comment or ''
+        atom_format_str = '  {:<2}       {:10.5f}       {:10.5f}       {:10.5f}'
+
+        with open(fname, 'wt', encoding = 'ascii') as file:
+            # First two lines are:
+            #   1. Number of atoms described in the file
+            #   2. Optional comment
+            file.write(str(len(self)) + '\n')
+            file.write(comment + '\n')
+
+            # Write atomic data row-by-row
+            # For easier human readability, atoms are sorted
+            # by element
+            for atom in self.itersorted():
+                row = atom_format_str.format(atom.element, *atom.xyz(self))
+                file.write(row + '\n')
+
+    def _spglib_cell(self):
+        """ Returns an array in spglib's cell format. """
+        arr = np.asarray(self)
+        return np.array(self.lattice_vectors), arr[:, 1:], arr[:, 0]
+
+    def primitive(self, symprec = 1e-2):
+        """ 
+        Returns a Crystal object in the primitive unit cell.
+        
+        Parameters
+        ----------
+        symprec : float, optional
+            Symmetry-search distance tolerance in Cartesian coordinates [Angstroms].
+
+        Returns
+        -------
+        primitive : Crystal
+            Crystal with primitive cell. If primitive cell is the same size as
+            the source Crystal, a reference to the source Crystal is returned.
+
+        Raises
+        ------
+        RuntimeError : If primitive cell could not be found.
+        
+        Notes
+        -----
+        Optional atomic properties (e.g magnetic moment) might be lost in the reduction.
+        """
+        search = find_primitive(self._spglib_cell(), 
+                                symprec = symprec)
+        if search is None:
+            raise RuntimeError('Primitive cell could not be found.')
+
+        lattice_vectors, scaled_positions, numbers = search
+        if numbers.size == len(self):   # Then there's no point in creating a new crystal
+            return self
+
+        atoms = [Atom(int(Z), coords = coords) for Z, coords in zip(numbers, scaled_positions)]
+
+        return Crystal(unitcell = atoms, 
+                       lattice_vectors = lattice_vectors, 
+                       source = self.source)
+
+    def ase_atoms(self, **kwargs):
+        """ 
+        Create an ASE Atoms object from a Crystal. 
+        
+        Parameters
+        ----------
+        kwargs
+            Keyword arguments are passed to ase.Atoms constructor.
+        
+        Returns
+        -------
+        atoms : ase.Atoms
+            Group of atoms ready for ASE's routines.
+        
+        Raises
+        ------
+        ImportError : If ASE is not installed
+        """
+        from ase import Atoms
+        
+        return Atoms(symbols = [atm.ase_atom(lattice = self) for atm in iter(self)],
+                     cell = np.array(self.lattice_vectors), **kwargs)
+    
+    def spacegroup_info(self, symprec = 1e-2, angle_tolerance = -1.0):
+        """ 
+        Returns a dictionary containing space-group information. This information
+        is computed from the crystal unit cell, and is not taken from records if available.
+        
+        Parameters
+        ----------
+        symprec : float, optional
+            Symmetry-search distance tolerance in Cartesian coordinates [Angstroms].
+        angle_tolerance: float, optional
+            Symmetry-search tolerance in degrees. If the value is negative (default), 
+            an internally optimized routine is used to judge symmetry.
+        
+        Returns
+        -------
+        info : dict or None
+            Dictionary of space-group information. The following keys are available:
+
+            * ``'international_symbol'``: International Tables of Crystallography space-group symbol (short);
+
+            * ``'international_full'``: International Tables of Crystallography space-group full symbol;
+
+            * ``'hall_symbol'`` : Hall symbol;
+
+            * ``'pointgroup'`` : International Tables of Crystallography point-group;
+
+            * ``'international_number'`` : International Tables of Crystallography space-group number (between 1 and 230);
+
+            * ``'hall_number'`` : Hall number (between 1 and 531).
+
+            If symmetry-determination has failed, None is returned.
+        
+        Raises
+        ------
+        RuntimeError : If symmetry-determination has yielded an error.
+        
+        Notes
+        -----
+        Note that crystals generated from the Protein Data Bank are often incomplete; 
+        in such cases the space-group information will be incorrect.
+        """
+        dataset = get_symmetry_dataset(cell = self._spglib_cell(),
+                                       symprec = symprec, 
+                                       angle_tolerance = angle_tolerance)
+
+        if dataset: 
+            spg_type = get_spacegroup_type(dataset['hall_number'])
+
+            info = {'international_symbol': dataset['international'],
+                    'hall_symbol'         : dataset['hall'],
+                    'international_number': dataset['number'],
+                    'hall_number'         : dataset['hall_number'],
+                    'international_full'  : spg_type['international_full'],
+                    'pointgroup'          : spg_type['pointgroup_international']} 
+
+            err_msg = get_error_message()
+            if (err_msg != 'no error'):
+                raise RuntimeError('Symmetry-determination has returned the following error: {}'.format(err_msg))
             
-			``3 floats``
-				returns structure factor computed for a single scattering vector
-                
-			``list of 3 coordinate ndarrays, shapes (L,M,N)``
-				returns structure factor computed over all coordinate space
+            return info
         
-		Returns
-		-------
-		sf : ndarray, dtype complex
-			Output is the same shape as h, k, or l.
-        
-		See also
-		--------
-		structure_factor
-			Vectorized structure factor calculation for general scattering vectors.	
-		"""
-		return self.structure_factor(G = self.scattering_vector(h, k, l))
-		
-	def structure_factor(self, G):
-		"""
-		Computation of the static structure factor. This function is meant for 
-		general scattering vectors, not Miller indices. 
-        
-		Parameters
-		----------
-		G : array-like
-			Scattering vector. Can be given in a few different formats:
-            
-			``array-like of numericals, shape (3,)``
-				returns structure factor computed for a single scattering vector
-                
-			``list of 3 coordinate ndarrays, shapes (L,M,N)``
-				returns structure factor computed over all coordinate space
-            
-			WARNING: Scattering vector is not equivalent to the Miller indices.
-        
-		Returns
-		-------
-		sf : ndarray, dtype complex
-			Output is the same shape as input G[0]. Takes into account
-			the Debye-Waller effect.
-        
-		See also
-		--------
-		structure_factor_miller 
-			For structure factors calculated from Miller indices.
-		        
-		Notes
-		-----
-		By convention, scattering vectors G are defined such that norm(G) = 4 pi s
-		"""
-		# Distribute input
-		# This works whether G is a list of 3 numbers, a ndarray shape(3,) or 
-		# a list of meshgrid arrays.
-		Gx, Gy, Gz = G
-		nG = np.sqrt(Gx**2 + Gy**2 + Gz**2)
-		
-		# Separating the structure factor into sine and cosine parts avoids adding
-		# complex arrays together. About 3x speedup vs. using complex exponentials
-		SFsin, SFcos = np.zeros(shape = nG.shape, dtype = np.float), np.zeros(shape = nG.shape, dtype = np.float)
+        return None
 
-		# Pre-allocation of form factors gives huge speedups
-		dwf = np.empty_like(SFsin) 	# debye-waller factor
-		atomff_dict = dict()
-		for atom in self.atoms:
-			if atom.element not in atomff_dict:
-				atomff_dict[atom.element] = atom.electron_form_factor(nG)
+    def __str__(self):
+        """ String representation of this instance. Atoms may be omitted. """
+        return self._to_string(natoms = 10)
+    
+    def __repr__(self):
+        """ Verbose string representation of this instance. """
+        return self._to_string(natoms = None)
+    
+    def _to_string(self, natoms = None):
+        """ Generate a string representation of this Crystal. Only include a maximum of `natoms` if provided. """
+        if natoms is not None:
+            if natoms >= len(self):
+                return self._to_string(natoms = None)
 
-		for atom in self: #TODO: implement in parallel?
-			x, y, z = atom.coords
-			arg = x*Gx + y*Gy + z*Gz
-			atom.debye_waller_factor((Gx, Gy, Gz), out = dwf)
-			atomff = atomff_dict[atom.element]
-			SFsin += atomff * dwf * np.sin(arg)
-			SFcos += atomff * dwf * np.cos(arg)
-		
-		return SFcos + 1j*SFsin
-	
-	def bounded_reflections(self, nG):
-		"""
-		Returns iterable of reflections (hkl) with norm(G) < nG
-        
-		Parameters
-		----------
-		nG : float
-			Maximal scattering vector norm. By our convention, norm(G) = 4 pi s.
-        
-		Returns
-		-------
-		h, k, l : ndarrays, shapes (N,), dtype int
-		"""
-		if nG < 0:
-			raise ValueError('Bound {} is negative.'.format(nG))
-		
-		# Determine the maximum index such that (i00) family is still within data limits
-		#TODO: cache results based on max_index?
-		bounded = lambda i : any([norm(self.scattering_vector(i,0,0)) <= nG, 
-									norm(self.scattering_vector(0,i,0)) <= nG, 
-									norm(self.scattering_vector(0,0,i)) <= nG])
-		max_index = max(takewhile(bounded, count(0)))
-		extent = range(-max_index, max_index + 1)
-		h, k, l = np.split(np.array(list(product(extent, extent, extent)), dtype = np.int), 3, axis = -1)
-		h, k, l = h.ravel(), k.ravel(), l.ravel()
+        # Note : Crystal subclasses need not override this method
+        # since the class name is dynamically determined
+        rep = '< {clsname} object with following unit cell:'.format(clsname = self.__class__.__name__)
 
-		# we only have an upper bound on possible reflections
-		# Let's filter down
-		Gx, Gy, Gz = self.scattering_vector(h, k, l)
-		norm_G = np.sqrt(Gx**2 + Gy**2 + Gz**2)
-		in_bound = norm_G <= nG
-		return h.compress(in_bound), k.compress(in_bound), l.compress(in_bound)
-	
-	def transform(self, *matrices):
-		"""
-		Transforms the real space coordinates according to a matrix.
+        # For very large structures, listing all atoms is prohibitive
+        if natoms is None:
+            atoms = self.itersorted()
+        else:
+            atoms = islice(self.itersorted(), natoms)
+
+        # Note that repr(Atom(...)) includes these '< ... >'
+        # We remove those for cleaner string representation
+        for atm in atoms:
+            rep += '\n    ' + repr(atm).replace('<', '').replace('>', '').strip()
         
-		Parameters
-		----------
-		matrices : ndarrays, shape {(3,3), (4,4)}
-			Transformation matrices.
-		"""
-		# Only rotation matrices should affect the symmetry operations
-		for matrix in map(affine_map, matrices):
-			if is_rotation_matrix(matrix):
-				matrix[:3, 3] = 0  # remove translations
-			self.symmetry_operators = tuple(transform(matrix, sym_op) for sym_op in self.symmetry_operators)
-		
-		super().transform(*matrices)
+        if natoms is not None:
+            rep += '\n      ... omitting {:d} atoms ...'.format(len(self) - natoms) 
+
+        rep += '\nLattice parameters: \n    {:.3f}Å, {:.3f}Å, {:.3f}Å, {:.2f}°, {:.2f}°, {:.2f}°'.format(*self.lattice_parameters)
+        rep += '\nSource: \n    {} >'.format(self.source or 'N/A')
+        return rep
