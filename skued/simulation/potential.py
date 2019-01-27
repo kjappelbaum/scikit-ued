@@ -10,6 +10,7 @@ from numba import jit
 import numpy as np
 from numpy import pi
 from scipy.special import k0 as bessel
+from scipy.linalg import fractional_matrix_power
 
 from .. import minimum_image_distance, repeated_array
 from .scattering_params import scattering_params
@@ -26,6 +27,14 @@ def sum_1(array_1, array_2, r):
     """
     return  np.sum(np.multiply(array_1 / r , np.exp(-2 * np.pi * np.sqrt(b)))) 
 
+@jit
+def sum_2(array_3, array_4, r): 
+    return np.multiply(c, 
+            np.multiply(fractional_matrix_power(d, -1.5), 
+               np.multiply(np.square( np.exp(-r * np.pi)),
+                   np.sqrt(b))
+               )
+            ) 
 
 def _electrostatic_atom(atom, r):
     try:
@@ -37,18 +46,22 @@ def _electrostatic_atom(atom, r):
             "Scattering information for element {} is unavailable.".format(atom.element)
         )
 
-    sum1 = np.zeros_like(r, dtype=np.float)
+    # sum1 = np.zeros_like(r, dtype=np.float)
     
     """
     for a, b in zip((a1, a2, a3), (b1, b2, b3)):
         sum1 += a / r * np.exp(-2 * pi * r * np.sqrt(b))
     """
     
-    sum_1 = sum_1(np.array([a1, a2, a3]), np.array([b1, b2, b3])) 
+    sum1 = sum_1(np.array([a1, a2, a3]), np.array([b1, b2, b3])) 
       
-    sum2 = np.zeros_like(r, np.float)
+    #sum2 = np.zeros_like(r, np.float)
+    """"
     for c, d in zip((c1, c2, c3), (d1, d2, d3)):
         sum2 += c * (d ** (-1.5)) * np.exp(-(r * pi) ** 2 / d)
+    """
+    sum2 = sum_2(np.array([c1, c2, c3), np.array([d1, d2, d3]))
+
 
     e = 14.4  # [Volt-Angstrom]
     a0 = 0.5291  # [Angs]
