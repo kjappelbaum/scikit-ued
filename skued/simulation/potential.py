@@ -5,6 +5,7 @@ Electrostatic potential simulation
 """
 from functools import partial
 from math import sqrt
+from numba import jit
 
 import numpy as np
 from numpy import pi
@@ -18,6 +19,14 @@ a0 = 0.5291  # in Angs
 e = 14.4  # Volt*Angstrom
 
 
+@jit
+def sum_1(array_1, array_2, r):
+    """
+    Performs first sum with numpy datastructures
+    """
+    return  np.sum(np.multiply(array_1 / r , np.exp(-2 * np.pi * np.sqrt(b)))) 
+
+
 def _electrostatic_atom(atom, r):
     try:
         _, a1, b1, a2, b2, a3, b3, c1, d1, c2, d2, c3, d3 = scattering_params[
@@ -29,9 +38,14 @@ def _electrostatic_atom(atom, r):
         )
 
     sum1 = np.zeros_like(r, dtype=np.float)
+    
+    """
     for a, b in zip((a1, a2, a3), (b1, b2, b3)):
         sum1 += a / r * np.exp(-2 * pi * r * np.sqrt(b))
-
+    """
+    
+    sum_1 = sum_1(np.array([a1, a2, a3]), np.array([b1, b2, b3])) 
+      
     sum2 = np.zeros_like(r, np.float)
     for c, d in zip((c1, c2, c3), (d1, d2, d3)):
         sum2 += c * (d ** (-1.5)) * np.exp(-(r * pi) ** 2 / d)
@@ -40,7 +54,7 @@ def _electrostatic_atom(atom, r):
     a0 = 0.5291  # [Angs]
     return 2 * a0 * e * (pi ** 2 * sum1 + pi ** (2.5) * sum2)
 
-
+@jit
 def electrostatic(crystal, x, y, z):
     """
     Electrostatic potential from a crystal calculated on a real-space mesh, 
@@ -80,7 +94,6 @@ def electrostatic(crystal, x, y, z):
     potential[np.isinf(potential)] = m
     return potential
 
-
 def _pelectrostatic_atom(atom, r):
     try:
         _, a1, b1, a2, b2, a3, b3, c1, d1, c2, d2, c3, d3 = scattering_params[
@@ -99,7 +112,7 @@ def _pelectrostatic_atom(atom, r):
 
     return 2 * a0 * e * (pi ** 2) * potential
 
-
+@jit
 def pelectrostatic(crystal, x, y, bounds=None):
     """
     Projected electrostatic potential from a crystal calculated on a real-space mesh, 
