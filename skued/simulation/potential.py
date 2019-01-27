@@ -21,21 +21,22 @@ e = 14.4  # Volt*Angstrom
 
 
 @jit
-def sum_1(array_1, array_2, r):
+def sum_1(a1, a2, a3, b1, b2, b3, r):
     """
     Performs first sum with numpy datastructures
     """
-    return  np.sum(np.multiply(array_1 / r , np.exp(-2 * np.pi * np.sqrt(b)))) 
+    sum1 = np.zeros_like(r, np.float)
+    for a, b in zip((a1, a2, a3), (b1, b2, b3)):
+        sum1 += a / r * np.exp(-2 * pi * r * np.sqrt(b))
+    return sum1
 
 @jit
-def sum_2(array_3, array_4, r): 
-    return np.multiply(c, 
-            np.multiply(fractional_matrix_power(d, -1.5), 
-               np.multiply(np.square( np.exp(-r * np.pi)),
-                   np.sqrt(b))
-               )
-            ) 
-
+def sum_2(c1, c2, c3, d1, d2, d3, r): 
+    sum2 = np.zeros_like(r, np.float) 
+    for c, d in zip((c1, c2, c3), (d1, d2, d3)):
+        sum2 += c * (d ** (-1.5)) * np.exp(-(r * pi) ** 2 / d)
+    return sum2
+    
 def _electrostatic_atom(atom, r):
     try:
         _, a1, b1, a2, b2, a3, b3, c1, d1, c2, d2, c3, d3 = scattering_params[
@@ -46,25 +47,15 @@ def _electrostatic_atom(atom, r):
             "Scattering information for element {} is unavailable.".format(atom.element)
         )
 
-    # sum1 = np.zeros_like(r, dtype=np.float)
     
-    """
-    for a, b in zip((a1, a2, a3), (b1, b2, b3)):
-        sum1 += a / r * np.exp(-2 * pi * r * np.sqrt(b))
-    """
-    
-    sum1 = sum_1(np.array([a1, a2, a3]), np.array([b1, b2, b3])) 
+    sum1 = sum_1(a1, a2, a3, b1, b2, b3, r) 
       
-    #sum2 = np.zeros_like(r, np.float)
-    """"
-    for c, d in zip((c1, c2, c3), (d1, d2, d3)):
-        sum2 += c * (d ** (-1.5)) * np.exp(-(r * pi) ** 2 / d)
-    """
-    sum2 = sum_2(np.array([c1, c2, c3), np.array([d1, d2, d3]))
+    sum2 = sum_2(c1, c2, c3, d1, d2, d3, r)
 
 
     e = 14.4  # [Volt-Angstrom]
     a0 = 0.5291  # [Angs]
+    
     return 2 * a0 * e * (pi ** 2 * sum1 + pi ** (2.5) * sum2)
 
 @jit
